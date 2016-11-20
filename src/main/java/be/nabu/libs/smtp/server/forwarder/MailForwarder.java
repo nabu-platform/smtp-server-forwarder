@@ -99,6 +99,7 @@ public class MailForwarder implements EventHandler<Part, String> {
 		return null;
 	}
 	
+	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private void forward(String domain, Part email, String from, String to) {
 		try {
 			Record [] records = new Lookup(domain, Type.MX).run();
@@ -116,15 +117,25 @@ public class MailForwarder implements EventHandler<Part, String> {
 					}
 				});
 				for (MXRecord record : mxRecords) {
-					System.out.println("ATTEMPTING: " + record.getTarget().toString());
 					try {
-						attempt(record.getTarget().toString(), email, from, to, true);
+						attempt(record.getTarget().toString(true), email, from, to, true);
 					}
 					catch (FormatException e) {
 						throw new SMTPException(500, e);
 					}
 					catch (Exception e) {
-						// keep trying
+						e.printStackTrace();
+						// try insecure
+						try {
+							attempt(record.getTarget().toString(true), email, from, to, false);
+						}
+						catch (FormatException e1) {
+							throw new SMTPException(500, e);
+						}
+						catch (Exception f) {
+							f.printStackTrace();
+							// keep trying others
+						}
 					}
 				}
 			}
@@ -135,7 +146,9 @@ public class MailForwarder implements EventHandler<Part, String> {
 		}
 	}
 	
-	private boolean attempt(String targetServer, Part email, String from, String to, boolean secure) throws SocketException, IOException, FormatException {
+	private void attempt(String targetServer, Part email, String from, String to, boolean secure) throws SocketException, IOException, FormatException {
+		logger.debug("Attempting to send mail to: " + targetServer);
+		
 		SMTPClient client = trustContext == null ? new SMTPClient() : new SMTPSClient(!secure, trustContext);
 		client.setConnectTimeout(connectionTimeout);
 		client.setDefaultTimeout(connectionTimeout);
