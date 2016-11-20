@@ -10,7 +10,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.net.ssl.SSLContext;
 
@@ -45,10 +47,12 @@ public class MailForwarder implements EventHandler<Part, String> {
 
 	private SSLContext trustContext;
 	
-	private int connectionTimeout = 60000;
-	private int socketTimeout = 60000;
+	private int connectionTimeout = 10000;
+	private int socketTimeout = 20000;
 
 	private String serverName;
+	
+	private Map<String, Boolean> secure = new HashMap<String, Boolean>();
 
 	public MailForwarder(String serverName, SSLContext trustContext, String...internalDomains) {
 		try {
@@ -117,24 +121,48 @@ public class MailForwarder implements EventHandler<Part, String> {
 					}
 				});
 				for (MXRecord record : mxRecords) {
-					try {
-						attempt(record.getTarget().toString(true), email, from, to, true);
-					}
-					catch (FormatException e) {
-						throw new SMTPException(500, e);
-					}
-					catch (Exception e) {
-						e.printStackTrace();
-						// try insecure
+					String host = record.getTarget().toString(true);
+					if (secure.containsKey(host)) {
 						try {
-							attempt(record.getTarget().toString(true), email, from, to, false);
+							attempt(host, email, from, to, secure.get(host));
 						}
-						catch (FormatException e1) {
+						catch (FormatException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+						catch (Exception e) {
+							// continue
+						}
+					}
+					// try both secure & insecure till we know which it is
+					else {
+						try {
+							attempt(host, email, from, to, true);
+							synchronized(secure) {
+								secure.put(host, true);
+							}
+							break;
+						}
+						catch (FormatException e) {
 							throw new SMTPException(500, e);
 						}
-						catch (Exception f) {
-							f.printStackTrace();
-							// keep trying others
+						catch (Exception e) {
+							e.printStackTrace();
+							// try insecure
+							try {
+								attempt(host, email, from, to, false);
+								synchronized(secure) {
+									secure.put(host, false);
+								}
+								break;
+							}
+							catch (FormatException e1) {
+								throw new SMTPException(500, e);
+							}
+							catch (Exception f) {
+								f.printStackTrace();
+								// keep trying others
+							}
 						}
 					}
 				}
@@ -149,19 +177,21 @@ public class MailForwarder implements EventHandler<Part, String> {
 	private void attempt(String targetServer, Part email, String from, String to, boolean secure) throws SocketException, IOException, FormatException {
 		logger.debug("Attempting to send mail to: " + targetServer);
 		
-		SMTPClient client = trustContext == null ? new SMTPClient() : new SMTPSClient(!secure, trustContext);
+		SMTPClient client = trustContext == null ? new SMTPClient() : new SMTPSClient(secure, trustContext);
 		client.setConnectTimeout(connectionTimeout);
 		client.setDefaultTimeout(connectionTimeout);
 		
 		// 465 was never official for long
 		int port = secure ? 587 : 25;
 		
+		logger.debug("Connecting on port: " + port);
 		// connect
 		client.connect(targetServer, port);
 		checkReply(client, "Could not connect to server");
 		
 		try {
 			client.setSoTimeout(socketTimeout);
+			logger.debug("Sending HELO");
 			client.helo(serverName);
 			checkReply(client, "Failed the helo command");
 			
@@ -170,20 +200,25 @@ public class MailForwarder implements EventHandler<Part, String> {
 				String[] replyStrings = client.getReplyStrings();
 				for (String reply : replyStrings) {
 					if (reply.contains("STARTTLS")) {
+						logger.debug("Executing STARTTLS");
 						if (!((SMTPSClient) client).execTLS()) {
+							logger.debug("STARTTLS Failed");
 							throw new RuntimeException("Secure context could not be established");
 						}
 					}
 				}
 			}
 			
+			logger.debug("Sending from: " + from);
 			// set sender/recipients
 			client.setSender(from);
 			checkReply(client, "Failed to set sender: " + from);
 			
+			logger.debug("Sending to: " + to);
 			client.addRecipient(to);
 			checkReply(client, "Failed to set recipient: " + to);
 			
+			logger.debug("Sending data");
 			// let's start writing...
 			Writer writer = client.sendMessageData();
 			MimeFormatter formatter = new MimeFormatter();

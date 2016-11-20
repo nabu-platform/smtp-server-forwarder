@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>be.nabu.libs.smtp</groupId>
 	<artifactId>smtp-server-forwarder</artifactId>
-	<version>1.0-SNAPSHOT</version>
+	<version>${be.nabu.libs.smtp-smtp-server-forwarder-version}</version>
 	<packaging>jar</packaging>
 	<name>smtp-server-forwarder</name>
 	<url>http://nabu.be</url>
