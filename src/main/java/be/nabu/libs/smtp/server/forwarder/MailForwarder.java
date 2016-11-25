@@ -10,9 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import javax.net.ssl.SSLContext;
 
@@ -28,7 +26,6 @@ import org.xbill.DNS.TextParseException;
 import org.xbill.DNS.Type;
 
 import be.nabu.libs.events.api.EventHandler;
-import be.nabu.libs.smtp.server.SMTPException;
 import be.nabu.utils.io.IOUtils;
 import be.nabu.utils.io.containers.chars.WritableStraightByteToCharContainer;
 import be.nabu.utils.mime.api.Header;
@@ -52,8 +49,6 @@ public class MailForwarder implements EventHandler<Part, String> {
 
 	private String serverName;
 	
-	private Map<String, Boolean> secure = new HashMap<String, Boolean>();
-
 	public MailForwarder(String serverName, SSLContext trustContext, String...internalDomains) {
 		try {
 			this.serverName = serverName == null ? InetAddress.getLocalHost().getHostName() : serverName;
@@ -122,48 +117,16 @@ public class MailForwarder implements EventHandler<Part, String> {
 				});
 				for (MXRecord record : mxRecords) {
 					String host = record.getTarget().toString(true);
-					if (secure.containsKey(host)) {
-						try {
-							attempt(host, email, from, to, secure.get(host));
-						}
-						catch (FormatException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-						catch (Exception e) {
-							// continue
-						}
+					try {
+						// MTA <> MTA transport is always on port 25 (as far as I can find)
+						attempt(host, email, from, to, false);
 					}
-					// try both secure & insecure till we know which it is
-					else {
-						try {
-							attempt(host, email, from, to, true);
-							synchronized(secure) {
-								secure.put(host, true);
-							}
-							break;
-						}
-						catch (FormatException e) {
-							throw new SMTPException(500, e);
-						}
-						catch (Exception e) {
-							e.printStackTrace();
-							// try insecure
-							try {
-								attempt(host, email, from, to, false);
-								synchronized(secure) {
-									secure.put(host, false);
-								}
-								break;
-							}
-							catch (FormatException e1) {
-								throw new SMTPException(500, e);
-							}
-							catch (Exception f) {
-								f.printStackTrace();
-								// keep trying others
-							}
-						}
+					catch (FormatException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					catch (Exception e) {
+						// continue
 					}
 				}
 			}
