@@ -2,9 +2,7 @@ package be.nabu.libs.smtp.server.forwarder;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.net.InetAddress;
 import java.net.SocketException;
-import java.net.UnknownHostException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -50,12 +48,7 @@ public class MailForwarder implements EventHandler<Part, String> {
 	private String serverName;
 	
 	public MailForwarder(String serverName, SSLContext trustContext, String...internalDomains) {
-		try {
-			this.serverName = serverName == null ? InetAddress.getLocalHost().getHostName() : serverName;
-		}
-		catch (UnknownHostException e) {
-			throw new IllegalArgumentException("Expecting host", e);
-		}
+		this.serverName = serverName;
 		try {
 			this.trustContext = trustContext == null ? SSLContext.getDefault() : trustContext;
 		}
@@ -119,14 +112,15 @@ public class MailForwarder implements EventHandler<Part, String> {
 					String host = record.getTarget().toString(true);
 					try {
 						// MTA <> MTA transport is always on port 25 (as far as I can find)
-						attempt(host, email, from, to, false);
-					}
-					catch (FormatException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+						if (!attempt(host, email, from, to, false)) {
+							logger.error("Failed to connect to: " + host + ", retrying other servers if any");
+							continue;
+						}
+						break;
 					}
 					catch (Exception e) {
-						// continue
+						logger.error("Failed for server " + host, e);
+						break;
 					}
 				}
 			}
@@ -137,7 +131,7 @@ public class MailForwarder implements EventHandler<Part, String> {
 		}
 	}
 	
-	private void attempt(String targetServer, Part email, String from, String to, boolean secure) throws SocketException, IOException, FormatException {
+	private boolean attempt(String targetServer, Part email, String from, String to, boolean secure) throws SocketException, IOException, FormatException {
 		logger.debug("Attempting to send mail to: " + targetServer);
 		
 		SMTPClient client = trustContext == null ? new SMTPClient() : new SMTPSClient(secure, trustContext);
@@ -148,58 +142,78 @@ public class MailForwarder implements EventHandler<Part, String> {
 		int port = secure ? 587 : 25;
 		
 		logger.debug("Connecting on port: " + port);
-		// connect
-		client.connect(targetServer, port);
-		checkReply(client, "Could not connect to server");
-		
+		try {
+			// connect
+			client.connect(targetServer, port);
+			if (!checkReply(client, "Could not connect to server", false)) {
+				return false;
+			}
+		}
+		catch (Exception e) {
+			logger.error("Could not connect to server: " + targetServer, e);
+			return false;
+		}
 		try {
 			client.setSoTimeout(socketTimeout);
-			logger.debug("Sending HELO");
-			client.helo(serverName);
-			checkReply(client, "Failed the helo command");
-			
-			// check if we want and can use starttls
-			if (!secure && trustContext != null) {
-				String[] replyStrings = client.getReplyStrings();
-				for (String reply : replyStrings) {
-					if (reply.contains("STARTTLS")) {
-						logger.debug("Executing STARTTLS");
-						if (!((SMTPSClient) client).execTLS()) {
-							logger.debug("STARTTLS Failed");
-							throw new RuntimeException("Secure context could not be established");
+			String domain = serverName == null ? from.replaceAll(".*@", "") : serverName;
+			logger.debug("Sending HELO from: {}", domain);
+			client.helo(domain);
+			if (checkReply(client, "Failed the helo command", false)) {
+				
+				// check if we want and can use starttls
+				if (!secure && trustContext != null) {
+					String[] replyStrings = client.getReplyStrings();
+					for (String reply : replyStrings) {
+						if (reply.contains("STARTTLS")) {
+							logger.debug("Executing STARTTLS");
+							if (!((SMTPSClient) client).execTLS()) {
+								logger.debug("STARTTLS Failed");
+								throw new RuntimeException("Secure context could not be established");
+							}
+						}
+					}
+				}
+				
+				logger.debug("Sending from: " + from);
+				// set sender/recipients
+				client.setSender(from);
+				if (checkReply(client, "Failed to set sender: " + from, false)) {
+					logger.debug("Sending to: " + to);
+					client.addRecipient(to);
+					if (checkReply(client, "Failed to set recipient: " + to, false)) {
+						logger.debug("Sending data");
+						// let's start writing...
+						Writer writer = client.sendMessageData();
+						MimeFormatter formatter = new MimeFormatter();
+						WritableStraightByteToCharContainer output = new WritableStraightByteToCharContainer(IOUtils.wrap(writer));
+						formatter.format(email, output);
+						output.close();
+						if (!client.completePendingCommand()) {
+							logger.error("Could not send the data: " + client.getReply() + " : " + client.getReplyString());
 						}
 					}
 				}
 			}
-			
-			logger.debug("Sending from: " + from);
-			// set sender/recipients
-			client.setSender(from);
-			checkReply(client, "Failed to set sender: " + from);
-			
-			logger.debug("Sending to: " + to);
-			client.addRecipient(to);
-			checkReply(client, "Failed to set recipient: " + to);
-			
-			logger.debug("Sending data");
-			// let's start writing...
-			Writer writer = client.sendMessageData();
-			MimeFormatter formatter = new MimeFormatter();
-			WritableStraightByteToCharContainer output = new WritableStraightByteToCharContainer(IOUtils.wrap(writer));
-			formatter.format(email, output);
-			output.close();
-			if (!client.completePendingCommand()) {
-				throw new RuntimeException("Could not send the data: " + client.getReply() + " : " + client.getReplyString());
-			}
+		}
+		catch (Exception e) {
+			logger.error("Error occurred while sending mail: [" + client.getReplyCode() + "] " + client.getReplyString(), e);
 		}
 		finally {
 			client.disconnect();
 		}
+		return true;
 	}
 	
-	private void checkReply(SMTPClient client, String message) {
+	private boolean checkReply(SMTPClient client, String message, boolean throwException) {
 		if (!SMTPReply.isPositiveCompletion(client.getReplyCode())) {
-			throw new RuntimeException("[" + client.getReplyCode() + "] " + client.getReplyString() + ": " + message);
+			if (throwException) {
+				throw new RuntimeException("[" + client.getReplyCode() + "] " + client.getReplyString() + ": " + message);
+			}
+			else {
+				logger.error("Failed positive check: [" + client.getReplyCode() + "] " + client.getReplyString() + ": " + message);
+				return false;
+			}
 		}
+		return true;
 	}
 }
