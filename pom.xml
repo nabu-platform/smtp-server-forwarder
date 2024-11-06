@@ -1,19 +1,16 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>be.nabu.libs.smtp</groupId>
 	<artifactId>smtp-server-forwarder</artifactId>
-	<version>${be.nabu.libs.smtp-smtp-server-forwarder-version}</version>
+	<version>1.1</version>
 	<packaging>jar</packaging>
 	<name>smtp-server-forwarder</name>
 	<url>http://nabu.be</url>
-
 	<parent>
 		<groupId>be.nabu</groupId>
 		<artifactId>core</artifactId>
 		<version>1.0-SNAPSHOT</version>
 	</parent>
-
 	<build>
 		<plugins>
 			<plugin>
@@ -26,9 +23,7 @@
 			</plugin>
 		</plugins>
 	</build>
-
 	<dependencies>
-	
 		<dependency>
 			<groupId>be.nabu.libs.authentication</groupId>
 			<artifactId>authentication-api</artifactId>
@@ -41,19 +36,16 @@
 			<groupId>be.nabu.libs.smtp</groupId>
 			<artifactId>smtp-server</artifactId>
 		</dependency>
-		
 		<dependency>
-		    <groupId>dnsjava</groupId>
-		    <artifactId>dnsjava</artifactId>
-		    <version>2.1.7</version>
+			<groupId>dnsjava</groupId>
+			<artifactId>dnsjava</artifactId>
+			<version>2.1.7</version>
 		</dependency>
-		
 		<dependency>
-		    <groupId>commons-net</groupId>
-		    <artifactId>commons-net</artifactId>
-		    <version>3.5</version>
+			<groupId>commons-net</groupId>
+			<artifactId>commons-net</artifactId>
+			<version>3.5</version>
 		</dependency>
-		
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
@@ -62,11 +54,9 @@
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-classic</artifactId>
 		</dependency>
-		
 		<dependency>
 			<groupId>be.nabu.libs.events</groupId>
 			<artifactId>events-api</artifactId>
 		</dependency>
-				
 	</dependencies>
 </project>
